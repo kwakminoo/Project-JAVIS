@@ -43,31 +43,68 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             IRISTheme {
-                assistantReplyState = remember { mutableStateOf("자비스에 오신 걸 환영합니다!") }
+                assistantReplyState = remember { mutableStateOf("아이리스에 오신 걸 환영합니다!") }
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(innerPadding)
-                            .padding(24.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            text = assistantReplyState.value,
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-                        Spacer(modifier = Modifier.height(32.dp))
-
-                        Button(onClick = {
-                            if (!checkAudioPermission()) return@Button
-                            startSpeechRecognition()
-                        }) {
-                            Text("자비스에게 말하기")
-                        }
+                IrisUI(
+                    assistantReplyState = assistantReplyState,
+                    onVoiceInputClick = {
+                        if (!checkAudioPermission()) return@IrisUI
+                        startSpeechRecognition()
+                    },
+                    onTextSubmit = { text ->
+                        assistantReplyState.value = text
+                        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
                     }
+                )
+            }
+        }
+    }
+
+    @Composable
+    fun IrisUI(
+        assistantReplyState: MutableState<String>,
+        onVoiceInputClick: () -> Unit,
+        onTextSubmit: (String) -> Unit
+    ) {
+        var userInput by remember { mutableStateOf("") }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = assistantReplyState.value,
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Button(onClick = onVoiceInputClick) {
+                Text("아이리스에게 말하기 (음성)")
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            OutlinedTextField(
+                value = userInput,
+                onValueChange = { userInput = it },
+                label = { Text("텍스트로 아이리스에게 말하기") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Button(onClick = {
+                if (userInput.isNotBlank()) {
+                    onTextSubmit(userInput)
+                    userInput = ""
                 }
+            }) {
+                Text("텍스트 전송")
             }
         }
     }
@@ -92,7 +129,7 @@ class MainActivity : ComponentActivity() {
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                assistantReplyState.value = "자비스가 듣고 있어요..."
+                assistantReplyState.value = "아이리스가 듣고 있어요..."
             }
 
             override fun onResults(results: Bundle?) {
@@ -135,11 +172,23 @@ fun GreetingPreview() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("자비스에 오신 걸 환영합니다!")
+            Text("아이리스에 오신 걸 환영합니다!")
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {}) {
-                Text("자비스에게 말하기")
+                Text("아이리스에게 말하기 (음성)")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = "",
+                onValueChange = {},
+                label = { Text("텍스트로 아이리스에게 말하기") },
+                singleLine = true
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(onClick = {}) {
+                Text("텍스트 전송")
             }
         }
     }
 }
+
