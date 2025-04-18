@@ -8,6 +8,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,11 +23,21 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.example.iris.ui.theme.IRISTheme
+import com.example.iris.api.HuggingChatService  // 추가된 import
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import retrofit2.create
+import kotlinx.coroutines.launch
+import okhttp3.ResponseBody
+import org.json.JSONObject
 import java.util.*
+import androidx.lifecycle.lifecycleScope  // 추가된 import
+
 
 class MainActivity : ComponentActivity() {
     private lateinit var tts: TextToSpeech
     private lateinit var assistantReplyState: MutableState<String>
+    private lateinit var huggingChatService: HuggingChatService
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +52,14 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Retrofit 인스턴스 생성
+        val retrofit = Retrofit.Builder()
+            .baseUrl("https://api-inference.huggingface.co/") // API 기본 URL
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        huggingChatService = retrofit.create(HuggingChatService::class.java)
+
         setContent {
             IRISTheme {
                 assistantReplyState = remember { mutableStateOf("아이리스에 오신 걸 환영합니다!") }
@@ -53,7 +72,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onTextSubmit = { text ->
                         assistantReplyState.value = text
-                        tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
+                        lifecycleScope.launch {
+                            getChatbotResponse(text) // 비동기적으로 호출
+                        }
                     }
                 )
             }
@@ -116,6 +137,33 @@ class MainActivity : ComponentActivity() {
             false
         } else {
             true
+        }
+    }
+
+    // API 호출 함수
+    private suspend fun getChatbotResponse(userInput: String) {
+        val requestBody = mapOf("inputs" to userInput)
+
+        try {
+            val response = huggingChatService.getResponse(
+                url = "models/HuggingFaceH4/zephyr-7b-beta", // 사용할 모델
+                request = requestBody
+            )
+
+            if (response.isSuccessful) {
+                val replyText = response.body()?.string()?.let {
+                    JSONObject(it).getJSONArray("generated_text").getString(0)
+                } ?: "응답이 없습니다."
+
+                assistantReplyState.value = replyText
+                tts.speak(replyText, TextToSpeech.QUEUE_FLUSH, null, null)
+            } else {
+                assistantReplyState.value = "응답 오류: ${response.code()}"
+            }
+        } catch (e: Exception) {
+            // 예외 처리: 에러 발생 시 로그를 찍고, 사용자에게 메시지를 출력
+            assistantReplyState.value = "API 호출 중 오류 발생: ${e.message}"
+            Log.e("IRIS", "Error during API call", e) // Logcat에 에러를 기록
         }
     }
 
