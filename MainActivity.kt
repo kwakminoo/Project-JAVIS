@@ -24,6 +24,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.iris.ui.theme.IRISTheme
+import com.example.iris.ui.WaveformVisualizer
 import kotlinx.coroutines.launch
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -36,15 +37,15 @@ import java.util.concurrent.TimeUnit
 class MainActivity : ComponentActivity() {
     private lateinit var tts: TextToSpeech
     private lateinit var assistantReplyState: MutableState<String>
+    private lateinit var isSpeaking: MutableState<Boolean>
     private lateinit var client: OkHttpClient
 
-    private val apiKey = "Bearer" // 여기에 실제 OpenAI 키 입력
+    private val apiKey = "Bearer YOUR_OPENAI_API_KEY" // 실제 키로 교체
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // TTS 초기화
         tts = TextToSpeech(this) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts.language = Locale.KOREAN
@@ -53,7 +54,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // OkHttpClient 초기화 (타임아웃 설정 포함)
         client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -63,15 +63,18 @@ class MainActivity : ComponentActivity() {
         setContent {
             IRISTheme {
                 assistantReplyState = remember { mutableStateOf("아이리스에 오신 걸 환영합니다!") }
+                isSpeaking = remember { mutableStateOf(false) }
 
                 IrisUI(
                     assistantReplyState = assistantReplyState,
+                    isSpeaking = isSpeaking,
                     onVoiceInputClick = {
                         if (!checkAudioPermission()) return@IrisUI
                         startSpeechRecognition()
                     },
                     onTextSubmit = { text ->
                         assistantReplyState.value = "잠시만 기다려 주세요..."
+                        isSpeaking.value = true
                         lifecycleScope.launch {
                             getChatbotResponse(text)
                         }
@@ -84,6 +87,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun IrisUI(
         assistantReplyState: MutableState<String>,
+        isSpeaking: MutableState<Boolean>,
         onVoiceInputClick: () -> Unit,
         onTextSubmit: (String) -> Unit
     ) {
@@ -96,6 +100,11 @@ class MainActivity : ComponentActivity() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // 파형 시각화 애니메이션
+            WaveformVisualizer(isActive = isSpeaking.value)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
                 text = assistantReplyState.value,
                 style = MaterialTheme.typography.headlineSmall
@@ -169,10 +178,12 @@ class MainActivity : ComponentActivity() {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
                     assistantReplyState.value = "API 호출 실패: ${e.message}"
+                    isSpeaking.value = false
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
+                isSpeaking.value = false
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     val reply = JSONObject(body!!)
@@ -205,17 +216,20 @@ class MainActivity : ComponentActivity() {
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 assistantReplyState.value = "아이리스가 듣고 있어요..."
+                isSpeaking.value = true
             }
 
             override fun onResults(results: Bundle?) {
                 val spokenText = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.get(0)
                 val userText = spokenText ?: "무슨 말인지 못 들었어요."
                 assistantReplyState.value = userText
+                isSpeaking.value = false
                 tts.speak(userText, TextToSpeech.QUEUE_FLUSH, null, null)
             }
 
             override fun onError(error: Int) {
                 assistantReplyState.value = "음성 인식 중 오류 발생: $error"
+                isSpeaking.value = false
             }
 
             override fun onBeginningOfSpeech() {}
