@@ -43,7 +43,7 @@ android {
 }
 
 dependencies {
-
+    // Compose UI 및 Material
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -53,24 +53,23 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
 
-    // Retrofit 및 Gson 추가
+    // Retrofit / OkHttp → OpenAI API 호출용
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    // lifecycleScope 추가
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.4.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.4.0")
-    // lifecycleScope를 사용하기 위해 activity-ktx 추가
-    implementation("androidx.activity:activity-ktx:1.4.0")  // 추가!
+    implementation("com.squareup.okhttp3:okhttp:4.9.3")
 
+    // lifecycleScope 사용
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.4.0")
+    implementation("androidx.activity:activity-ktx:1.4.0")
 
-    // 테스트 관련
+    // 테스트
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
 
-    // 디버그 도구
+    // 디버깅
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
