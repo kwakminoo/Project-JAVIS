@@ -72,4 +72,9 @@ dependencies {
     // 디버깅
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+
+    // 애니메이션
+    implementation("androidx.compose.animation:animation:1.6.0")
+    // Canvas 그래픽
+    implementation("androidx.compose.ui:ui-graphics:1.6.0") 
 }
