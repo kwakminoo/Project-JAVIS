@@ -22,22 +22,23 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.example.iris.ui.theme.IRISTheme
-import com.example.iris.api.HuggingChatService  // 추가된 import
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import retrofit2.create
 import kotlinx.coroutines.launch
-import okhttp3.ResponseBody
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.util.*
-import androidx.lifecycle.lifecycleScope  // 추가된 import
-
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private lateinit var tts: TextToSpeech
     private lateinit var assistantReplyState: MutableState<String>
-    private lateinit var huggingChatService: HuggingChatService
+    private lateinit var client: OkHttpClient
+
+    private val apiKey = "Bearer" // 여기에 실제 OpenAI 키 입력
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,13 +53,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Retrofit 인스턴스 생성
-        val retrofit = Retrofit.Builder()
-            .baseUrl("https://api-inference.huggingface.co/") // API 기본 URL
-            .addConverterFactory(GsonConverterFactory.create())
+        // OkHttpClient 초기화 (타임아웃 설정 포함)
+        client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
             .build()
-
-        huggingChatService = retrofit.create(HuggingChatService::class.java)
 
         setContent {
             IRISTheme {
@@ -71,9 +71,9 @@ class MainActivity : ComponentActivity() {
                         startSpeechRecognition()
                     },
                     onTextSubmit = { text ->
-                        assistantReplyState.value = text
+                        assistantReplyState.value = "잠시만 기다려 주세요..."
                         lifecycleScope.launch {
-                            getChatbotResponse(text) // 비동기적으로 호출
+                            getChatbotResponse(text)
                         }
                     }
                 )
@@ -140,31 +140,58 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // API 호출 함수
     private suspend fun getChatbotResponse(userInput: String) {
-        val requestBody = mapOf("inputs" to userInput)
+        val url = "https://api.openai.com/v1/chat/completions"
 
-        try {
-            val response = huggingChatService.getResponse(
-                url = "models/HuggingFaceH4/zephyr-7b-beta", // 사용할 모델
-                request = requestBody
-            )
+        val messagesArray = JSONArray()
+        messagesArray.put(JSONObject().apply {
+            put("role", "user")
+            put("content", userInput)
+        })
 
-            if (response.isSuccessful) {
-                val replyText = response.body()?.string()?.let {
-                    JSONObject(it).getJSONArray("generated_text").getString(0)
-                } ?: "응답이 없습니다."
+        val jsonBody = JSONObject()
+        jsonBody.put("model", "gpt-3.5-turbo")
+        jsonBody.put("messages", messagesArray)
 
-                assistantReplyState.value = replyText
-                tts.speak(replyText, TextToSpeech.QUEUE_FLUSH, null, null)
-            } else {
-                assistantReplyState.value = "응답 오류: ${response.code()}"
+        val requestBody = RequestBody.create(
+            "application/json".toMediaTypeOrNull(),
+            jsonBody.toString()
+        )
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", apiKey)
+            .addHeader("Content-Type", "application/json")
+            .post(requestBody)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    assistantReplyState.value = "API 호출 실패: ${e.message}"
+                }
             }
-        } catch (e: Exception) {
-            // 예외 처리: 에러 발생 시 로그를 찍고, 사용자에게 메시지를 출력
-            assistantReplyState.value = "API 호출 중 오류 발생: ${e.message}"
-            Log.e("IRIS", "Error during API call", e) // Logcat에 에러를 기록
-        }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    val reply = JSONObject(body!!)
+                        .getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content")
+
+                    runOnUiThread {
+                        assistantReplyState.value = reply.trim()
+                        tts.speak(reply, TextToSpeech.QUEUE_FLUSH, null, null)
+                    }
+                } else {
+                    runOnUiThread {
+                        assistantReplyState.value = "API 오류: ${response.code}"
+                    }
+                }
+            }
+        })
     }
 
     private fun startSpeechRecognition() {
@@ -206,37 +233,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         tts.stop()
         tts.shutdown()
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    IRISTheme {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("아이리스에 오신 걸 환영합니다!")
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = {}) {
-                Text("아이리스에게 말하기 (음성)")
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = "",
-                onValueChange = {},
-                label = { Text("텍스트로 아이리스에게 말하기") },
-                singleLine = true
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Button(onClick = {}) {
-                Text("텍스트 전송")
-            }
-        }
     }
 }
 
