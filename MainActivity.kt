@@ -4,11 +4,11 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.provider.Settings
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
-import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.example.iris.ui.WaveformVisualizer
+import com.example.iris.ui.overlay.FloatingWaveformService
 import com.example.iris.ui.theme.IRISTheme
 import kotlinx.coroutines.launch
 import okhttp3.*
@@ -35,12 +35,22 @@ import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
     private lateinit var tts: TextToSpeech
+    private lateinit var assistantReplyState: MutableState<String>
     private lateinit var client: OkHttpClient
-    private val apiKey = "Bearer sk-..." // 👉 여기에 실제 OpenAI API 키 입력
+
+    private val apiKey = "Bearer sk-..." // OpenAI API 키 입력
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        tts = TextToSpeech(this) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                tts.language = Locale.KOREAN
+            } else {
+                Toast.makeText(this, "TTS 초기화 실패", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         client = OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -48,23 +58,37 @@ class MainActivity : ComponentActivity() {
             .writeTimeout(60, TimeUnit.SECONDS)
             .build()
 
+        if (Settings.canDrawOverlays(this)) {
+            startFloatingService()
+        } else {
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+            startActivity(intent)
+        }
+
         setContent {
             IRISTheme {
-                val assistantReplyState = remember { mutableStateOf("아이리스에 오신 걸 환영합니다!") }
-                val isWaveformActive = remember { mutableStateOf(false) }
+                assistantReplyState = remember { mutableStateOf("아이리스에 오신 걸 환영합니다!") }
+                var isListening by remember { mutableStateOf(false) }
+                var isSpeaking by remember { mutableStateOf(false) }
 
                 IrisUI(
                     assistantReplyState = assistantReplyState,
-                    isWaveformActive = isWaveformActive,
+                    isListening = isListening,
+                    isSpeaking = isSpeaking,
                     onVoiceInputClick = {
                         if (!checkAudioPermission()) return@IrisUI
-                        startSpeechRecognition(assistantReplyState, isWaveformActive)
+                        isListening = true
+                        startSpeechRecognition {
+                            isListening = false
+                        }
                     },
                     onTextSubmit = { text ->
                         assistantReplyState.value = "잠시만 기다려 주세요..."
-                        isWaveformActive.value = true
+                        isSpeaking = true
                         lifecycleScope.launch {
-                            getChatbotResponse(text, assistantReplyState, isWaveformActive)
+                            getChatbotResponse(text) {
+                                isSpeaking = false
+                            }
                         }
                     }
                 )
@@ -72,10 +96,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun startFloatingService() {
+        val serviceIntent = Intent(this, FloatingWaveformService::class.java)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    }
+
     @Composable
     fun IrisUI(
         assistantReplyState: MutableState<String>,
-        isWaveformActive: MutableState<Boolean>,
+        isListening: Boolean,
+        isSpeaking: Boolean,
         onVoiceInputClick: () -> Unit,
         onTextSubmit: (String) -> Unit
     ) {
@@ -88,9 +122,7 @@ class MainActivity : ComponentActivity() {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            WaveformVisualizer(isActive = isWaveformActive.value)
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = assistantReplyState.value,
@@ -136,22 +168,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun getChatbotResponse(
-        userInput: String,
-        assistantReplyState: MutableState<String>,
-        isWaveformActive: MutableState<Boolean>
-    ) {
+    private suspend fun getChatbotResponse(userInput: String, onDone: () -> Unit) {
         val url = "https://api.openai.com/v1/chat/completions"
 
-        val messagesArray = JSONArray()
-        messagesArray.put(JSONObject().apply {
-            put("role", "user")
-            put("content", userInput)
-        })
+        val messagesArray = JSONArray().apply {
+            put(JSONObject().apply {
+                put("role", "user")
+                put("content", userInput)
+            })
+        }
 
-        val jsonBody = JSONObject()
-        jsonBody.put("model", "gpt-3.5-turbo")
-        jsonBody.put("messages", messagesArray)
+        val jsonBody = JSONObject().apply {
+            put("model", "gpt-3.5-turbo")
+            put("messages", messagesArray)
+        }
 
         val requestBody = RequestBody.create(
             "application/json".toMediaTypeOrNull(),
@@ -169,12 +199,11 @@ class MainActivity : ComponentActivity() {
             override fun onFailure(call: Call, e: IOException) {
                 runOnUiThread {
                     assistantReplyState.value = "API 호출 실패: ${e.message}"
-                    isWaveformActive.value = false
+                    onDone()
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
-                isWaveformActive.value = false
                 if (response.isSuccessful) {
                     val body = response.body?.string()
                     val reply = JSONObject(body!!)
@@ -185,24 +214,20 @@ class MainActivity : ComponentActivity() {
 
                     runOnUiThread {
                         assistantReplyState.value = reply.trim()
-                        isWaveformActive.value = true
                         tts.speak(reply, TextToSpeech.QUEUE_FLUSH, null, null)
-                        isWaveformActive.value = false
+                        onDone()
                     }
                 } else {
                     runOnUiThread {
                         assistantReplyState.value = "API 오류: ${response.code}"
-                        isWaveformActive.value = false
+                        onDone()
                     }
                 }
             }
         })
     }
 
-    private fun startSpeechRecognition(
-        assistantReplyState: MutableState<String>,
-        isWaveformActive: MutableState<Boolean>
-    ) {
+    private fun startSpeechRecognition(onDone: () -> Unit) {
         val recognizer = SpeechRecognizer.createSpeechRecognizer(this)
 
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -213,26 +238,23 @@ class MainActivity : ComponentActivity() {
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 assistantReplyState.value = "아이리스가 듣고 있어요..."
-                isWaveformActive.value = true
             }
 
             override fun onResults(results: Bundle?) {
-                isWaveformActive.value = false
                 val spokenText = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.get(0)
                 val userText = spokenText ?: "무슨 말인지 못 들었어요."
                 assistantReplyState.value = userText
                 tts.speak(userText, TextToSpeech.QUEUE_FLUSH, null, null)
+                onDone()
             }
 
             override fun onError(error: Int) {
                 assistantReplyState.value = "음성 인식 중 오류 발생: $error"
-                isWaveformActive.value = false
+                onDone()
             }
 
             override fun onBeginningOfSpeech() {}
-            override fun onEndOfSpeech() {
-                isWaveformActive.value = false
-            }
+            override fun onEndOfSpeech() {}
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onPartialResults(partialResults: Bundle?) {}
