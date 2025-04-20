@@ -2,8 +2,22 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- 🎙️ 음성 인식 권한 -->
+    <!-- 🎙️ 음성 인식 및 네트워크 -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 📱 오버레이 권한 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
+    <!-- 🟢 포그라운드 서비스 권한 (API 28+) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+
+    <!-- Android 14 이상에서 mediaPlayback 서비스 실행용 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+
+    <!-- Android 14 이상에서 microphone 서비스 실행용 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
 
     <application
         android:allowBackup="true"
@@ -16,6 +30,7 @@
         android:theme="@style/Theme.IRIS"
         tools:targetApi="31">
 
+        <!-- 메인 액티비티 -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -27,7 +42,11 @@
             </intent-filter>
         </activity>
 
+        <!-- 🟢 오버레이 파형 서비스 등록 -->
+        <service
+            android:name=".ui.overlay.FloatingWaveformService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback|microphone" />
     </application>
 
 </manifest>
-
