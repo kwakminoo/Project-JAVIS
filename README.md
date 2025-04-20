@@ -54,7 +54,7 @@
 ---
 
 ## 📦 프로젝트 구조 (간단 정리)
-
+~~~
 iris/
 ├── .gitignore                 # Git에서 무시할 파일 목록
 ├── build.gradle.kts          # 프로젝트 전체 빌드 설정
@@ -85,5 +85,32 @@ iris/
 └── gradle/
     └── wrapper/                  # Gradle 실행기 관련
 
+~~~
 
+
+## 📲 설치 및 실행
+- Android Studio로 프로젝트 열기
+
+- build.gradle.kts 확인 및 Sync
+
+- 실제 디바이스 또는 에뮬레이터에서 Run
+
+- 음성 또는 텍스트로 대화 시작
+
+## 🧠 기획 의도
+- "내 손 안의 자비스를 만들자."
+
+- 혼자만의 대화가 가능한 친구 같은 AI
+
+- 정보를 능동적으로 제안해주는 비서
+
+- 언젠가는 UI가 허공에 떠있는 듯한 앱
+
+## 📜 라이선스
+- MIT License (or specify later)
+
+## 🙌 제작자
+- 개발자: [곽민우 & 강지훈]
+
+-연락처: [kwakmw12@naver.com]
 
